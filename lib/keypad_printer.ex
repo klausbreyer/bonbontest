@@ -1,8 +1,7 @@
 defmodule KeypadPrinter do
   use GenServer
 
-  @type_key 0x01
-  @key_enter 28
+  @enter_codes MapSet.new([28, 96])
 
   # numpad keys in Linux input keycodes:
   # KP0..KP9: 82,79,80,81,75,76,77,71,72,73 (depends on mapping)
@@ -29,6 +28,7 @@ defmodule KeypadPrinter do
     state = %{kfd: kfd, pfd: pfd, buf: ""}
 
     # start reading
+    IO.puts("[keypad_printer] ready to accept input from #{kbd}")
     send(self(), :read)
     {:ok, state}
   end
@@ -44,6 +44,7 @@ defmodule KeypadPrinter do
     # We'll try 24 bytes (64-bit) first, then fallback to 16 bytes (32-bit).
     case read_event(state.kfd) do
       {:ok, {type, code, value}} ->
+        IO.puts("[keypad_printer] key event type=#{type} code=#{code} value=#{value}")
         state = handle_key(type, code, value, state)
         send(self(), :read)
         {:noreply, state}
@@ -58,17 +59,19 @@ defmodule KeypadPrinter do
     end
   end
 
-  defp handle_key(@type_key, code, 1, state) do
-    # value 1 = key press, 0 = release, 2 = repeat
+  defp handle_key(0x01, code, 1, state) do
     cond do
-      code == @key_enter ->
+      MapSet.member?(@enter_codes, code) ->
+        IO.puts("[keypad_printer] ENTER (code=#{code}) -> printing: #{inspect(state.buf)}")
         print_line(state.pfd, state.buf)
         %{state | buf: ""}
 
       digit = @kp_map[code] ->
+        IO.puts("[keypad_printer] digit (code=#{code}) -> \"#{digit}\"")
         %{state | buf: state.buf <> digit}
 
       true ->
+        IO.puts("[keypad_printer] key code=#{code} ignored (not mapped)")
         state
     end
   end
